@@ -49,3 +49,40 @@ chmod 774 /var/packages/transmission/target/share/transmission/web/* -R
 ## 项目日常维护
 * 栽培者
 * DarkAlexWang
+
+---
+
+## Transmission 4.x / 4.1.3 compatibility (this fork)
+
+This fork keeps **Transmission Web Control working with Transmission 4.x**, in
+particular **Transmission 4.1.3** (RPC version 19), including the **FreshTomato**
+builds shipped on routers (e.g. Netgear R1D).
+
+Key points, validated against a live Transmission 4.1.3 daemon:
+
+- FreshTomato's Transmission 4.1.3 still speaks the **legacy JSON-RPC 1.0**
+  protocol (`method` + `arguments`, kebab-case) and **returns HTTP 204 to a
+  JSON-RPC 2.0 envelope**. The RPC layer therefore keeps the legacy request
+  format. Switching the client to JSON-RPC 2.0 + `snake_case` (as some other
+  forks do) breaks it on this daemon.
+- On the first `session-get` the client stores the daemon `rpc-version`
+  (`transmission.rpcVersion`, `transmission.isV4()`).
+- Renamed session fields are normalized so one build works across
+  Transmission 2.9x/3.x **and** 4.x:
+  `ratio-limit`→`seedRatioLimit`, `ratio-limit-enabled`→`seedRatioLimited`,
+  `idle-limit-seedminutes`→`idle-seeding-limit`,
+  `idle-limit-seedminutes-enabled`→`idle-seeding-limit-enabled`.
+  On 4.x daemons this is a no-op.
+
+### Deploying on FreshTomato
+
+`transmission-daemon` must be started with `TRANSMISSION_WEB_HOME` pointing at
+the deployed `public_html`, e.g.:
+
+```sh
+export LD_LIBRARY_PATH=/opt/trtest
+export TRANSMISSION_WEB_HOME=/opt/share/transmission/public_html
+/opt/bin/transmission-daemon -g /opt/etc/transmission
+```
+
+The contents of `src/` are what goes into `public_html`.
