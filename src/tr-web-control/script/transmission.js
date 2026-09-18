@@ -38,6 +38,43 @@ var transmission = {
 		getTarckers: true
 	},
 	headers: {},
+	// --- Transmission 4.x compatibility ---
+	// Detected RPC version of the connected daemon (0 = not known yet).
+	// Transmission 4.0+ uses rpc-version >= 16 and renamed several session fields.
+	// FreshTomato builds of Transmission 4.1.3 (rpc-version 19) still speak the
+	// legacy JSON-RPC 1.0 protocol (method + arguments) and answer HTTP 204 to a
+	// JSON-RPC 2.0 envelope, so we always keep the legacy request format here.
+	rpcVersion: 0,
+	// legacy (Transmission <= 3.x) session field name -> Transmission 4.x name
+	_sessionFieldLegacyToV4: {
+		"ratio-limit": "seedRatioLimit",
+		"ratio-limit-enabled": "seedRatioLimited",
+		"idle-limit-seedminutes": "idle-seeding-limit",
+		"idle-limit-seedminutes-enabled": "idle-seeding-limit-enabled"
+	},
+	isV4: function() {
+		return this.rpcVersion >= 16;
+	},
+	// rename keys of `args` according to `map` (only when target not already set)
+	_renameSessionFields: function(args, map) {
+		if (!args) return args;
+		for (var from in map) {
+			if (!Object.prototype.hasOwnProperty.call(map, from)) continue;
+			var to = map[from];
+			if (Object.prototype.hasOwnProperty.call(args, from) && args[to] === undefined) {
+				args[to] = args[from];
+				delete args[from];
+			}
+		}
+		return args;
+	},
+	_reverseMap: function(map) {
+		var out = {};
+		for (var k in map) {
+			if (Object.prototype.hasOwnProperty.call(map, k)) out[map[k]] = k;
+		}
+		return out;
+	},
 	trackers: {},
 	islocal: false,
 	// The list of directories that currently exist
@@ -96,12 +133,29 @@ var transmission = {
 
 		jQuery.extend(data, config);
 
+		// Compatibility: the UI always uses Transmission 4.x session field names.
+		// When talking to an older daemon (rpc-version < 16) translate them back
+		// to the legacy names so session-set is accepted. On 4.x this is a no-op.
+		if (data.method === "session-set" && this.rpcVersion && !this.isV4()) {
+			this._renameSessionFields(data.arguments, this._reverseMap(this._sessionFieldLegacyToV4));
+		}
+
 		var settings = {
 			type: "POST",
 			url: this.fullpath,
 			dataType: 'json',
 			data: JSON.stringify(data),
 			success: function(resultData, textStatus) {
+				// Remember the daemon RPC version and normalize legacy field names
+				// to the 4.x names the UI expects (e.g. ratio-limit -> seedRatioLimit).
+				if (resultData && resultData.arguments) {
+					if (typeof resultData.arguments["rpc-version"] === "number") {
+						transmission.rpcVersion = resultData.arguments["rpc-version"];
+					}
+					if (transmission.rpcVersion && !transmission.isV4()) {
+						transmission._renameSessionFields(resultData.arguments, transmission._sessionFieldLegacyToV4);
+					}
+				}
 				if (callback) {
 					callback(resultData, tags);
 				}
